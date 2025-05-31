@@ -1,0 +1,150 @@
+library(httr)
+library(jsonlite)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(tseries)     # Para o teste ADF
+library(FinTS)       # Para o teste ARCH
+library(rugarch)     # Para modelos GARCH
+
+# Organizing and extracting
+
+api_key <- "F4MbCfNYB7lBrDFsbzbtGXzIo4exuULH0gQKuN0G"
+
+series_ids <- list(
+  Price            = "NG.RNGWHHD.D",        # Preço spot Henry Hub (diário)
+  Gross_Production = "NG.N9050US2.M",       # Produção bruta (mensal)
+  Storage          = "NG.NW2_EPG0_SWO_R48_BCF.W", # Estoques (semanal)
+  Exports          = "NG.N9150US2.M",       # Exportações (mensal)
+  Imports          = "NG.N9100US2.M"         # Importações (mensal)
+)
+
+get_eia_series_v2 <- function(series_id, label, api_key) {
+  url <- paste0("https://api.eia.gov/v2/seriesid/", series_id, "?api_key=", api_key)
+  response <- GET(url)
+  data <- fromJSON(content(response, "text", encoding = "UTF-8"))
+  
+  if (!is.null(data$response$data)) {
+    df <- data$response$data
+    df <- df[, c("period", "value")]
+    colnames(df) <- c("Date", label)
+    
+    df$Date <- ifelse(nchar(df$Date) == 7,
+                      paste0(df$Date, "-01"),
+                      df$Date)
+    df$Date <- as.Date(df$Date)
+    
+    df <- df[order(df$Date), ]
+    
+    # Filtra a partir de 2010-01-01
+    df <- df %>% filter(Date >= as.Date("2010-01-01"))
+    
+    # Cria colunas separadas de dia, mês e ano
+    df$Day <- day(df$Date)
+    df$Month <- month(df$Date)
+    df$Year <- year(df$Date)
+    
+    return(df)
+  } else {
+    warning(paste("No data returned for series:", series_id))
+    return(data.frame())
+  }
+}
+
+data_list <- list()
+
+for (label in names(series_ids)) {
+  message("Importando: ", label)
+  df <- get_eia_series_v2(series_ids[[label]], label, api_key)
+  if (nrow(df) > 0) {
+    data_list[[label]] <- df
+  }
+}
+
+df <- df %>% rename(
+  NewCol1 = OldCol1,
+  NewCol2 = OldCol2
+)
+
+data_list$Gross_Production <- data_list$Gross_Production %>% rename(Month = Day, Day = Month)
+data_list$Exports          <- data_list$Exports          %>% rename(Month = Day, Day = Month)
+data_list$Imports          <- data_list$Imports          %>% rename(Month = Day, Day = Month)
+
+
+data_list$Price <- data_list$Price %>%
+  select(Date, Day, Month, Year, everything())
+data_list$Gross_Production <- data_list$Gross_Production %>%
+  select(Date, Day, Month, Year, everything())
+data_list$Storage <- data_list$Storage %>%
+  select(Date, Day, Month, Year, everything())
+data_list$Exports <- data_list$Exports %>%
+  select(Date, Day, Month, Year, everything())
+data_list$Imports <- data_list$Imports %>%
+  select(Date, Day, Month, Year, everything())
+
+
+# Analising 
+
+# Cálculo dos retornos logarítmicos
+data_list$Price <- data_list$Price %>%
+  arrange(Date) %>%
+  mutate(Log_Returns = log(Price) - log(lag(Price)))
+
+# Gráfico dos retornos
+ggplot(data_list$Price, aes(x = Date, y = Log_Returns)) +
+  geom_line(color = "blue") +
+  labs(title = "Log Returns - Natural Gas Spot Price",
+       x = "Date", y = "Log Returns") +
+  theme_minimal()
+
+
+# Remover valores NA (primeiro valor de retorno é sempre NA)
+returns <- na.omit(data_list$Price$Log_Returns)
+
+# Teste de estacionariedade - Augmented Dickey-Fuller
+adf_result <- adf.test(returns)
+print(adf_result)
+
+# Teste ARCH para verificar presença de heterocedasticidade condicional
+arch_test <- ArchTest(returns, lags = 12)
+print(arch_test)
+
+# Aplicando o modelo GJR-GARCH
+
+# Define a especificação do modelo GJR-GARCH(1,1)
+gjr_spec <- ugarchspec(
+  variance.model = list(model = "gjrGARCH", garchOrder = c(1, 1)),
+  mean.model     = list(armaOrder = c(0, 0), include.mean = TRUE),
+  distribution.model = "norm"
+)
+
+# Ajusta o modelo aos retornos
+gjr_fit <- ugarchfit(spec = gjr_spec, data = na.omit(data_list$Price$Log_Returns))
+
+# Mostra os resultados
+show(gjr_fit)
+
+# Graphic: Estimated Conditional Volatility
+
+volatility_series <- sigma(gjr_fit)
+dates <- data_list$Price$Date[!is.na(data_list$Price$Log_Returns)]
+
+plot(dates, volatility_series, type = "l", col = "blue",
+     main = "Estimated Conditional Volatility (GJR-GARCH)",
+     xlab = "Date", ylab = "Volatility")
+
+
+# T-student Analise
+
+# Especificação do modelo GJR-GARCH(1,1) com distribuição t-Student
+gjr_spec_t <- ugarchspec(
+  variance.model = list(model = "gjrGARCH", garchOrder = c(1, 1)),
+  mean.model     = list(armaOrder = c(0, 0), include.mean = TRUE),
+  distribution.model = "std"  # t-Student
+)
+
+# Ajuste do modelo
+gjr_fit_t <- ugarchfit(spec = gjr_spec_t, data = returns, solver = "hybrid")
+
+# Resumo dos resultados
+show(gjr_fit_t)
