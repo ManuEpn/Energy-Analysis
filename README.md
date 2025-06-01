@@ -11,6 +11,4 @@ It includes:
 
 
 Author: Emanuelle | Portfolio Project
-git add .
-git commit -m "Add initial project files: .Rproj and README.md"
-git push origin main
+
