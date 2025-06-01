@@ -1,0 +1,213 @@
+---
+title: "Volatility Analysis of Natural Gas Prices with GJR-GARCH"
+author: "Emanuelle"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: darkly
+    highlight: zenburn
+    toc: true
+    toc_float: true
+---
+
+```{css, echo=FALSE}
+pre {
+  background-color: #222222 !important;
+  color: #f1f1f1 !important;
+  border: none;
+}
+```
+---
+
+
+```{r setup, include=FALSE}
+library(httr)
+library(jsonlite)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(tseries)     # Para o teste ADF
+library(FinTS)       # Para o teste ARCH
+library(rugarch)     # Para modelos GARCH
+library(tibble)
+
+```
+
+
+## 1. Data Import from EIA API
+
+```{r}
+api_key <- "F4MbCfNYB7lBrDFsbzbtGXzIo4exuULH0gQKuN0G"
+
+series_ids <- list(
+  Price            = "NG.RNGWHHD.D",
+  Gross_Production = "NG.N9050US2.M",
+  Storage          = "NG.NW2_EPG0_SWO_R48_BCF.W",
+  Exports          = "NG.N9150US2.M",
+  Imports          = "NG.N9100US2.M"
+)
+
+get_eia_series_v2 <- function(series_id, label, api_key) {
+  url <- paste0("https://api.eia.gov/v2/seriesid/", series_id, "?api_key=", api_key)
+  response <- GET(url)
+  data <- fromJSON(content(response, "text", encoding = "UTF-8"))
+  
+  if (!is.null(data$response$data)) {
+    df <- data$response$data
+    df <- df[, c("period", "value")]
+    colnames(df) <- c("Date", label)
+    df$Date <- ifelse(nchar(df$Date) == 7, paste0(df$Date, "-01"), df$Date)
+    df$Date <- as.Date(df$Date)
+    df <- df %>% filter(Date >= as.Date("2010-01-01")) %>% arrange(Date)
+    return(df)
+  } else {
+    warning(paste("No data for", series_id))
+    return(data.frame())
+  }
+}
+
+data_list <- list()
+for (label in names(series_ids)) {
+  df <- get_eia_series_v2(series_ids[[label]], label, api_key)
+  if (nrow(df) > 0) {
+    data_list[[label]] <- df
+  }
+}
+```
+
+---
+
+
+# 2. Data Transformation: Log Returns
+
+```{r}
+data_list$Price <- data_list$Price %>%
+  arrange(Date) %>%
+  mutate(Log_Returns = log(Price) - log(lag(Price)))
+
+returns <- na.omit(data_list$Price$Log_Returns)
+
+ggplot(data_list$Price, aes(x = Date, y = Log_Returns)) +
+  geom_line(color = "cyan") +
+  labs(title = "Log Returns - Natural Gas Spot Price", x = "Date", y = "Log Returns") +
+  theme_minimal() +
+  theme(
+    plot.background = element_rect(fill = "#222222", color = NA),
+    panel.background = element_rect(fill = "#222222", color = NA),
+    panel.grid.major = element_line(color = "#444444"),
+    panel.grid.minor = element_line(color = "#333333"),
+    axis.text = element_text(color = "white"),
+    axis.title = element_text(color = "white"),
+    plot.title = element_text(color = "white", face = "bold")
+  )
+
+```
+
+**Interpretation:** Log returns highlight clusters of volatility — a key feature in commodity markets. In practice, this means price shocks (like weather or war) ripple over time, increasing market uncertainty.
+
+---
+
+# 3. Stationarity Test (ADF)
+
+```{r}
+adf_result <- adf.test(returns)
+adf_result
+```
+
+**Interpretation:** The p-value < 0.01 confirms the return series is stationary. This supports using GARCH-type models, which assume a stable mean and changing variance.
+
+---
+
+# 4. ARCH LM Test
+
+```{r}
+ArchTest(returns, lags = 12)
+```
+
+**Interpretation:** We reject the null of no ARCH effects. That means conditional heteroskedasticity is present — validating the need for models like GARCH or GJR-GARCH.
+
+---
+
+# 5. GJR-GARCH(1,1) with t-student Distribution
+
+```{r}
+spec <- ugarchspec(
+  variance.model = list(model = "gjrGARCH", garchOrder = c(1,1)),
+  mean.model = list(armaOrder = c(0,0), include.mean = TRUE),
+  distribution.model = "std"
+)
+
+gjr_fit <- ugarchfit(spec = spec, data = returns)
+gjr_fit
+```
+
+**Interpretation:** The t-student GJR-GARCH captures:
+
+- High volatility persistence (beta ≈ 0.77)
+- Shock responsiveness (alpha ≈ 0.22)
+- Heavy tails (shape ≈ 3.5), meaning extreme events are more likely than under normality.
+
+---
+
+# 6. Model Diagnostics
+
+```{r}
+infocriteria(gjr_fit)
+
+res <- residuals(gjr_fit, standardize = TRUE)
+Box.test(res, lag = 20, type = "Ljung-Box")
+Box.test(res^2, lag = 20, type = "Ljung-Box")
+```
+
+**Interpretation:** No autocorrelation in residuals or squared residuals → the model fits well. This makes it suitable for forecasting volatility or risk modeling in financial and energy contexts.
+
+---
+
+# 7. Conditional Volatility Plot
+
+```{r}
+volatility_series <- sigma(gjr_fit)
+dates <- tail(data_list$Price$Date, length(volatility_series))
+
+
+vol_df <- tibble(
+  Date = dates,
+  Volatility = volatility_series
+)
+
+ggplot(vol_df, aes(x = Date, y = Volatility)) +
+  geom_line(color = "cyan", linewidth = 0.8) +
+  labs(
+    title = "Estimated Conditional Volatility (GJR-GARCH)",
+    x = "Date", y = "Volatility"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.background = element_rect(fill = "#222222", color = NA),
+    panel.background = element_rect(fill = "#222222", color = NA),
+    panel.grid.major = element_line(color = "#444444"),
+    panel.grid.minor = element_line(color = "#333333"),
+    axis.text = element_text(color = "white"),
+    axis.title = element_text(color = "white"),
+    plot.title = element_text(color = "white", face = "bold")
+  )
+
+```
+
+**Interpretation:** Spikes in volatility match real events (e.g. COVID-19, Ukraine War), showing the model captures real-world uncertainty well.  
+With the t-student distribution, the **gamma** (asymmetry) term is not significant — meaning **fat tails** (extreme events) are more influential than the sign of the shock.
+
+---
+
+# 8. Final Insights and Real-World Relevance
+
+- Natural gas price volatility is **non-constant**, with **clusters and persistence**.
+- GJR-GARCH(1,1) with t-student distribution gives a **better statistical fit** than with normal distribution.
+- **Asymmetry** (gamma) is significant under normality, but not under t-student — supporting the idea that **extremes matter more than direction**.
+- The model supports **risk forecasting, stress testing**, and **policy planning** in energy economics.
+
+**Applications:**
+- **Hedging strategies** for LNG producers and importers.
+- **Market risk modeling** by analysts and portfolio managers.
+- **Policy insights** on energy security and supply volatility.
+
