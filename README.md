@@ -17,9 +17,13 @@ It includes:
 
 <<<<<<< Updated upstream
 Author: Emanuelle | Portfolio Project
+<<<<<<< HEAD
 git add .
 git commit -m "Add initial project files: .Rproj and README.md"
 git push origin main
 =======
 Author: Emanuelle | Portfolio Project
 >>>>>>> Stashed changes
+=======
+
+>>>>>>> c4cda11147244b980227c2b6cc6ef82b7e5c7517
