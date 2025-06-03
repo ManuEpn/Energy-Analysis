@@ -1,3 +1,8 @@
+<<<<<<< Updated upstream
+=======
+
+
+>>>>>>> Stashed changes
 # Natural Gas Volatility Modeling - GJR-GARCH
 
 This repository contains an R Markdown analysis of natural gas spot price volatility using GJR-GARCH(1,1) with t-Student distribution.
@@ -10,7 +15,11 @@ It includes:
 - Real-world applications in the energy market
 
 
+<<<<<<< Updated upstream
 Author: Emanuelle | Portfolio Project
 git add .
 git commit -m "Add initial project files: .Rproj and README.md"
 git push origin main
+=======
+Author: Emanuelle | Portfolio Project
+>>>>>>> Stashed changes
