@@ -3,11 +3,11 @@ title: "Volatility Analysis of Natural Gas Prices with GJR-GARCH"
 author: "Emanuelle"
 date: "`r Sys.Date()`"
 output:
-  html_document:
-    theme: darkly
-    highlight: zenburn
+  github_document:
+    #theme: darkly
+    #highlight: zenburn
     toc: true
-    toc_float: true
+    #toc_float: true
 ---
 
 ```{css, echo=FALSE}
@@ -211,3 +211,7 @@ With the t-student distribution, the **gamma** (asymmetry) term is not significa
 - **Market risk modeling** by analysts and portfolio managers.
 - **Policy insights** on energy security and supply volatility.
 
+```{r}
+#rmarkdown::render("LNG_analysis.Rmd", output_format = "all")
+#file.rename("LNG_analysis.md", "README.md")
+```
