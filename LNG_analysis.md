@@ -262,7 +262,7 @@ gjr_fit
 ## 4    50    2242.4    0.000e+00
 ## 
 ## 
-## Elapsed time : 1.025812
+## Elapsed time : 0.681622
 ```
 
 **Interpretation:** The t-student GJR-GARCH captures:
