@@ -370,5 +370,9 @@ volatility.
 #file.rename("LNG_analysis.md", "README.md")
 ```
 
+------------------------------------------------------------------------
+
+# 9. Bibliography
+
 Chung, S. (2024). Modelling and forecasting energy market volatility using GARCH and machine learning approach. arXiv. https://arxiv.org/abs/2405.19849
 
